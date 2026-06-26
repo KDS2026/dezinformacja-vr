@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#050505" />
+    <title>Doświadczenie VR o dezinformacji</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="app" aria-label="Doświadczenie VR o dezinformacji">
+      <canvas id="vr-canvas"></canvas>
+
+      <section id="start-screen" class="start-screen" aria-live="polite">
+        <div class="start-panel">
+          <p class="start-kicker">Meta Quest 2 / WebXR</p>
+          <h1>Doświadczenie VR o dezinformacji</h1>
+          <p class="start-copy">
+            Wejdz w VR, zaloz gogle i patrz na spokojny cel startowy.
+            Dalej prowadzi juz sam wzrok.
+          </p>
+          <button id="enter-vr" class="primary-action" type="button">WEJDZ W VR</button>
+          <button id="preview-mode" class="secondary-action" type="button">PODGLAD 2D</button>
+          <p id="support-note" class="support-note"></p>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
