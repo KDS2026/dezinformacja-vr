@@ -11,6 +11,7 @@ export const EXPERIENCE = {
     background: "./assets/img/tlo.png",
     images: {
       concert: "./assets/img/koncert.png",
+      riots: "./assets/img/zamieszki.png",
       shadow: "./assets/img/cien.png",
       reflection: "./assets/img/odbicie.png",
       source: "./assets/img/idealna-falszywka.png",
@@ -27,6 +28,9 @@ export const EXPERIENCE = {
     {
       id: "scene-1-frame",
       imageKey: "concert",
+      introImageKey: "riots",
+      introAspect: 1.25,
+      introWidth: 3.5,
       angleDeg: 0,
       aspect: 4.031,
       width: 6.6,

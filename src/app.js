@@ -415,6 +415,11 @@ function createPanel(sceneConfig) {
   overlayRoot.position.z = 0.055;
   root.add(overlayRoot);
 
+  const introRoot = sceneConfig.introImageKey ? createIntroLayer(sceneConfig) : null;
+  if (introRoot) {
+    root.add(introRoot);
+  }
+
   return {
     config: sceneConfig,
     root,
@@ -423,6 +428,7 @@ function createPanel(sceneConfig) {
     photo,
     target,
     overlayRoot,
+    introRoot,
     texture,
     width,
     height,
@@ -430,6 +436,44 @@ function createPanel(sceneConfig) {
     triptych: null,
     zoom: null,
   };
+}
+
+function createIntroLayer(sceneConfig) {
+  const introRoot = new THREE.Group();
+  introRoot.name = `${sceneConfig.id}-intro`;
+  introRoot.position.z = 0.105;
+
+  const introWidth = sceneConfig.introWidth || 3.4;
+  const introHeight = introWidth / (sceneConfig.introAspect || 1.25);
+  const introTexture = textureLoader.load(EXPERIENCE.assets.images[sceneConfig.introImageKey]);
+  introTexture.colorSpace = THREE.SRGBColorSpace;
+  introTexture.minFilter = THREE.LinearFilter;
+  introTexture.magFilter = THREE.LinearFilter;
+
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(introWidth + 0.11, introHeight + 0.11),
+    new THREE.MeshBasicMaterial({
+      color: 0x090807,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+    }),
+  );
+  frame.position.z = -0.018;
+  introRoot.add(frame);
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(introWidth, introHeight),
+    new THREE.MeshBasicMaterial({
+      map: introTexture,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+    }),
+  );
+  introRoot.add(mesh);
+
+  return introRoot;
 }
 
 function createFadeSphere() {
@@ -571,6 +615,9 @@ function resetExperience({ armed = true } = {}) {
     panel.texture.repeat.set(1, 1);
     panel.texture.offset.set(0, 0);
     clearPanelOverlays(panel);
+    if (panel.introRoot) {
+      setConcertIntro(panel, false);
+    }
     panel.frame.material.color.setHex(0x090807);
   }
 
@@ -750,8 +797,14 @@ function startScene(index) {
     const panel = getPanel(i);
     if (i !== index) {
       clearPanelOverlays(panel);
+      if (panel.introRoot) {
+        setGroupOpacity(panel.introRoot, 0);
+        panel.introRoot.visible = false;
+      }
     }
-    const targetOpacity = i === index ? 1 : 0.14;
+    const targetOpacity = i === index
+      ? (panel.config.introImageKey ? 0.1 : 1)
+      : 0.14;
     const targetColor = i === index ? ACTIVE_COLOR : DIM_COLOR;
     tween(0.75, (t) => {
       panel.photo.material.opacity = THREE.MathUtils.lerp(panel.photo.material.opacity, targetOpacity, t);
@@ -763,6 +816,7 @@ function startScene(index) {
   clearPanelOverlays(activePanel);
   if (sceneConfig.imageKey === "concert") {
     setConcertCrop(activePanel, 0);
+    setConcertIntro(activePanel, Boolean(sceneConfig.introImageKey));
   }
 
   audioDirector.stopScene();
@@ -820,9 +874,18 @@ function handleSceneEvent(action) {
   switch (action) {
     case "concertCropStart":
       setConcertCrop(panel, 0);
+      setConcertIntro(panel, Boolean(panel.config.introImageKey));
       break;
     case "concertReveal":
-      tween(4.2, (t) => setConcertCrop(panel, t));
+      tween(
+        4.2,
+        (t) => setConcertReveal(panel, t),
+        () => {
+          if (panel.introRoot) {
+            panel.introRoot.visible = false;
+          }
+        },
+      );
       break;
     case "shadowSun":
       addCircleMarker(panel, { x: 0.81, y: 0.16, radius: 0.12, color: SOFT_GOLD });
@@ -876,6 +939,23 @@ function setConcertCrop(panel, progress) {
   panel.contentRoot.scale.x = crop;
   panel.texture.repeat.x = crop;
   panel.texture.offset.x = (1 - crop) * 0.5;
+}
+
+function setConcertIntro(panel, visible) {
+  if (!panel.introRoot) return;
+  panel.introRoot.visible = visible;
+  panel.introRoot.scale.setScalar(1);
+  setGroupOpacity(panel.introRoot, visible ? 1 : 0);
+}
+
+function setConcertReveal(panel, progress) {
+  const eased = easeOutCubic(progress);
+  setConcertCrop(panel, progress);
+  panel.photo.material.opacity = THREE.MathUtils.lerp(0.1, 1, eased);
+  if (panel.introRoot) {
+    setGroupOpacity(panel.introRoot, 1 - eased);
+    panel.introRoot.scale.setScalar(1 + eased * 0.035);
+  }
 }
 
 function enableReflectionSearch(panel) {
