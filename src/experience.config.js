@@ -92,7 +92,7 @@ export const EXPERIENCE = {
     {
       id: "scene-3-reflection",
       imageKey: "reflection",
-      angleDeg: 146,
+      angleDeg: -55,
       aspect: 1.792,
       width: 4.95,
       duration: 70.4,

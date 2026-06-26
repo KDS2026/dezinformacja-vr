@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js";
+import { EXPERIENCE } from "./experience.config.js?v=leftfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
