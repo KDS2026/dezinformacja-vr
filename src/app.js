@@ -163,6 +163,11 @@ class AudioDirector {
       return;
     }
 
+    if (cue.silent) {
+      await wait(scaled(cue.duration || 1));
+      return;
+    }
+
     const candidates = cue.file
       ? [cue.file]
       : this.config.extensionFallbacks.map((extension) => `${cue.id}.${extension}`);
