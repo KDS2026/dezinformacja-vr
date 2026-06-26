@@ -24,6 +24,7 @@ const BLUE = 0x73b7ff;
 const GREEN = 0x79e0a8;
 const DIM_COLOR = new THREE.Color(0x27221b);
 const ACTIVE_COLOR = new THREE.Color(0xffffff);
+const NEXT_HINT_COLOR = new THREE.Color(0x9f8c6f);
 
 let renderer;
 try {
@@ -747,6 +748,9 @@ function startScene(index) {
 
   for (let i = 0; i < EXPERIENCE.scenes.length; i += 1) {
     const panel = getPanel(i);
+    if (i !== index) {
+      clearPanelOverlays(panel);
+    }
     const targetOpacity = i === index ? 1 : 0.14;
     const targetColor = i === index ? ACTIVE_COLOR : DIM_COLOR;
     tween(0.75, (t) => {
@@ -774,9 +778,14 @@ function awaitNextScene(nextIndex) {
   audioDirector.stopScene();
 
   const currentPanel = getPanel(activeSceneIndex);
+  const nextPanel = getPanel(nextIndex);
+  clearPanelOverlays(currentPanel);
   tween(1.1, (t) => {
     currentPanel.photo.material.opacity = THREE.MathUtils.lerp(currentPanel.photo.material.opacity, 0.34, t);
     currentPanel.photo.material.color.copy(tmpColor.copy(currentPanel.photo.material.color).lerp(DIM_COLOR, t));
+    nextPanel.photo.material.opacity = THREE.MathUtils.lerp(nextPanel.photo.material.opacity, 0.38, t);
+    nextPanel.frame.material.opacity = THREE.MathUtils.lerp(nextPanel.frame.material.opacity, 0.72, t);
+    nextPanel.photo.material.color.copy(tmpColor.copy(nextPanel.photo.material.color).lerp(NEXT_HINT_COLOR, t));
   });
 }
 
@@ -824,12 +833,22 @@ function handleSceneEvent(action) {
       addArrow(panel, { x: 0.50, y: 0.58 }, { x: 0.25, y: 0.84 }, BLUE);
       break;
     case "shadowTower":
-      addRectMarker(panel, { x: 0.49, y: 0.16, w: 0.12, h: 0.28, color: GREEN });
-      addArrow(panel, { x: 0.57, y: 0.25 }, { x: 0.50, y: 0.08 }, GREEN);
+      addRectMarker(panel, { x: 0.49, y: 0.17, w: 0.15, h: 0.34, color: GREEN, opacity: 0.12 });
+      addArrow(panel, { x: 0.61, y: 0.29 }, { x: 0.52, y: 0.08 }, GREEN);
       break;
     case "shadowMissing":
-      addRectMarker(panel, { x: 0.35, y: 0.61, w: 0.26, h: 0.2, color: RED });
-      addArrow(panel, { x: 0.49, y: 0.31 }, { x: 0.35, y: 0.63 }, RED);
+      addPolygonMarker(panel, {
+        color: RED,
+        opacity: 0.2,
+        points: [
+          { x: 0.45, y: 0.39 },
+          { x: 0.56, y: 0.39 },
+          { x: 0.43, y: 0.8 },
+          { x: 0.23, y: 0.79 },
+        ],
+      });
+      addRectMarker(panel, { x: 0.36, y: 0.69, w: 0.34, h: 0.2, color: RED, opacity: 0.08 });
+      addArrow(panel, { x: 0.51, y: 0.35 }, { x: 0.34, y: 0.73 }, RED);
       break;
     case "enableReflectionSearch":
       enableReflectionSearch(panel);
@@ -903,7 +922,7 @@ function revealReflection() {
     zoomWidth / cropAspect,
   );
   zoom.name = "reflection-zoom";
-  zoom.position.set(-panel.width * 0.22, 0.02, 0.14);
+  zoom.position.set(panel.width * 0.22, 0.02, 0.14);
   zoom.scale.setScalar(0.8);
   setGroupOpacity(zoom, 0);
   panel.overlayRoot.add(zoom);
@@ -1067,6 +1086,51 @@ function addRectMarker(panel, options) {
   );
   border.position.z = 0.006;
   group.add(fill, border);
+  parent.add(group);
+  fadeInGroup(group, 0.75);
+  panel.markers.push(group);
+  return group;
+}
+
+function addPolygonMarker(panel, options) {
+  const parent = options.parent || panel.overlayRoot;
+  const localPoints = options.points.map((point) => normToLocal(panel, point.x, point.y));
+  const shape = new THREE.Shape();
+  shape.moveTo(localPoints[0].x, localPoints[0].y);
+  for (let i = 1; i < localPoints.length; i += 1) {
+    shape.lineTo(localPoints[i].x, localPoints[i].y);
+  }
+  shape.lineTo(localPoints[0].x, localPoints[0].y);
+
+  const group = new THREE.Group();
+  group.position.z = 0.105;
+
+  const fillGeometry = new THREE.ShapeGeometry(shape);
+  const fill = new THREE.Mesh(
+    fillGeometry,
+    new THREE.MeshBasicMaterial({
+      color: options.color,
+      transparent: true,
+      opacity: options.opacity ?? 0.14,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  group.add(fill);
+
+  const outlinePoints = localPoints.map((point) => new THREE.Vector3(point.x, point.y, 0.008));
+  outlinePoints.push(outlinePoints[0].clone());
+  const outline = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(outlinePoints),
+    new THREE.LineBasicMaterial({
+      color: options.color,
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+    }),
+  );
+  group.add(outline);
+
   parent.add(group);
   fadeInGroup(group, 0.75);
   panel.markers.push(group);
