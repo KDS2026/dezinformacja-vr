@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=stopfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=stopfix2-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -61,6 +61,7 @@ camera.position.set(0, 1.58, 0);
 scene.add(camera);
 
 const textureLoader = new THREE.TextureLoader();
+const textureCache = new Map();
 const raycaster = new THREE.Raycaster();
 const clock = new THREE.Clock();
 const cameraPosition = new THREE.Vector3();
@@ -102,6 +103,16 @@ let emergencyResetActivations = 0;
 
 const panels = new Map();
 const firedEvents = new Set();
+
+function getCachedTexture(src) {
+  if (textureCache.has(src)) return textureCache.get(src);
+  const texture = textureLoader.load(src);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  textureCache.set(src, texture);
+  return texture;
+}
 
 class AudioDirector {
   constructor(config) {
@@ -173,11 +184,13 @@ class AudioDirector {
 
   async playCue(cue, token) {
     if (fastMode || !this.unlocked) {
+      this.dispatchCueStart(cue, token);
       await wait(scaled(cue.duration || 1));
       return;
     }
 
     if (cue.silent) {
+      this.dispatchCueStart(cue, token);
       await wait(scaled(cue.duration || 1));
       return;
     }
@@ -188,14 +201,20 @@ class AudioDirector {
 
     for (const filename of candidates) {
       if (token !== this.sceneToken) return;
-      const ok = await this.tryPlayAudio(`${this.config.basePath}${filename}`, token);
+      const ok = await this.tryPlayAudio(`${this.config.basePath}${filename}`, token, cue);
       if (ok) return;
     }
 
+    this.dispatchCueStart(cue, token);
     await wait(scaled(cue.duration || 1));
   }
 
-  tryPlayAudio(src, token) {
+  dispatchCueStart(cue, token) {
+    if (token !== this.sceneToken || !cue?.actionAtStart) return;
+    handleCueEvent(cue.actionAtStart);
+  }
+
+  tryPlayAudio(src, token, cue) {
     return new Promise((resolve) => {
       const audio = new Audio(src);
       let settled = false;
@@ -228,6 +247,7 @@ class AudioDirector {
         audio
           .play()
           .then(() => {
+            this.dispatchCueStart(cue, token);
             audio.addEventListener("ended", () => finish(true), { once: true });
             audio.addEventListener("error", () => finish(false), { once: true });
           })
@@ -253,6 +273,7 @@ function init() {
   createPanels();
   createEmergencyResetTarget();
   createFadeSphere();
+  preloadLateTextures();
   resetExperience({ armed: false });
   bindUi();
   bindDesktopLook();
@@ -263,6 +284,11 @@ function init() {
   if (hasSpeedOverride) {
     window.setInterval(render, 1000 / 30);
   }
+}
+
+function preloadLateTextures() {
+  getCachedTexture(EXPERIENCE.assets.images.r5IntroBoard);
+  getCachedTexture(EXPERIENCE.assets.images.menBoard);
 }
 
 function createGalleryShell() {
@@ -380,7 +406,8 @@ function createPanels() {
 function createEmergencyResetTarget() {
   const root = new THREE.Group();
   root.name = "emergency-reset-target";
-  root.position.set(0, 2.22, -2.55);
+  root.position.set(0, 3.9, -2.45);
+  root.scale.setScalar(1.15);
   root.visible = false;
 
   const halo = new THREE.Mesh(
@@ -707,8 +734,8 @@ function bindDesktopLook() {
     desktopYaw = yawStart - (event.clientX - pointerStartX) * 0.004;
     desktopPitch = THREE.MathUtils.clamp(
       pitchStart - (event.clientY - pointerStartY) * 0.003,
-      -0.58,
-      0.58,
+      -0.98,
+      0.98,
     );
   });
 
@@ -794,6 +821,7 @@ function render() {
   updateMode(timelineDelta);
   updateEmergencyReset(animationDelta);
   updateGaze(animationDelta);
+  updateMarkerEmphasis(animationDelta);
   updateReticle();
   updateFloatingBoards();
   window.__vrState = {
@@ -810,6 +838,7 @@ function render() {
     reflectionRevealed,
     reflectionZoomVisible: Boolean(getPanel(2)?.zoom),
     shadowSimulationVisible: Boolean(getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation")),
+    shadowTowerMarkerVisible: Boolean(getPanel(1)?.overlayRoot.getObjectByName("shadow-tower-arrow")),
     shadowSimulationSeen,
     summaryGridVisible: Boolean(getPanel(3)?.triptych),
     emergencyResetVisible: Boolean(emergencyReset?.root.visible),
@@ -824,6 +853,7 @@ function render() {
   canvas.dataset.reflectionRevealed = reflectionRevealed ? "1" : "0";
   canvas.dataset.reflectionZoom = getPanel(2)?.zoom ? "1" : "0";
   canvas.dataset.shadowSimulation = getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation") ? "1" : "0";
+  canvas.dataset.shadowTowerMarker = getPanel(1)?.overlayRoot.getObjectByName("shadow-tower-arrow") ? "1" : "0";
   canvas.dataset.shadowSimulationSeen = shadowSimulationSeen ? "1" : "0";
   canvas.dataset.summaryGrid = getPanel(3)?.triptych ? "1" : "0";
   canvas.dataset.resetTarget = emergencyReset?.root.visible ? "1" : "0";
@@ -1121,6 +1151,21 @@ function startOpeningIntro() {
   audioDirector.playScene(EXPERIENCE.opening.cues);
 }
 
+function handleCueEvent(action) {
+  if (!action) return;
+  if (mode === "opening") {
+    handleOpeningEvent(action);
+    return;
+  }
+  if (mode === "playing" && activeSceneIndex >= 0) {
+    handleSceneEvent(action);
+    return;
+  }
+  if (mode === "closing") {
+    handleClosingEvent(action);
+  }
+}
+
 function handleOpeningEvent(action) {
   switch (action) {
     case "releaseStartTarget":
@@ -1362,8 +1407,8 @@ function handleSceneEvent(action) {
       addArrow(panel, { x: 0.50, y: 0.58 }, { x: 0.25, y: 0.84 }, BLUE);
       break;
     case "shadowTower":
-      addRectMarker(panel, { x: 0.49, y: 0.17, w: 0.15, h: 0.34, color: GREEN, opacity: 0.12 });
-      addArrow(panel, { x: 0.61, y: 0.29 }, { x: 0.52, y: 0.08 }, GREEN);
+      addRectMarker(panel, { x: 0.49, y: 0.17, w: 0.15, h: 0.34, color: GREEN, opacity: 0.12 }).name = "shadow-tower-box";
+      addArrow(panel, { x: 0.61, y: 0.29 }, { x: 0.52, y: 0.08 }, GREEN).name = "shadow-tower-arrow";
       break;
     case "shadowMissing":
       addPolygonMarker(panel, {
@@ -1411,10 +1456,7 @@ function showMenBoard() {
 
   const boardWidth = 2.65;
   const boardHeight = boardWidth * 0.75;
-  const texture = textureLoader.load(EXPERIENCE.assets.images.menBoard);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
+  const texture = getCachedTexture(EXPERIENCE.assets.images.menBoard);
 
   const frame = new THREE.Mesh(
     new THREE.PlaneGeometry(boardWidth + 0.08, boardHeight + 0.08),
@@ -1471,10 +1513,7 @@ function showR5IntroBoard() {
 
   const boardWidth = 2.72;
   const boardHeight = boardWidth * 0.75;
-  const texture = textureLoader.load(EXPERIENCE.assets.images.r5IntroBoard);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
+  const texture = getCachedTexture(EXPERIENCE.assets.images.r5IntroBoard);
 
   const frame = new THREE.Mesh(
     new THREE.PlaneGeometry(boardWidth + 0.08, boardHeight + 0.08),
@@ -1809,19 +1848,23 @@ function addCircleMarker(panel, options) {
       transparent: true,
       opacity: 0.13,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
+  fill.renderOrder = 52;
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(radius * 0.9, radius, 64),
     new THREE.MeshBasicMaterial({
       color: options.color,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.96,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
+  ring.renderOrder = 53;
   group.add(fill, ring);
   parent.add(group);
   fadeInGroup(group, 0.75);
@@ -1845,9 +1888,11 @@ function addRectMarker(panel, options) {
       transparent: true,
       opacity: options.opacity ?? 0.16,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
+  fill.renderOrder = 52;
 
   const borderGeometry = new THREE.EdgesGeometry(new THREE.PlaneGeometry(width, height));
   const border = new THREE.LineSegments(
@@ -1855,11 +1900,13 @@ function addRectMarker(panel, options) {
     new THREE.LineBasicMaterial({
       color: options.color,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
+      depthTest: false,
       depthWrite: false,
     }),
   );
   border.position.z = 0.006;
+  border.renderOrder = 53;
   group.add(fill, border);
   parent.add(group);
   fadeInGroup(group, 0.75);
@@ -1888,9 +1935,11 @@ function addPolygonMarker(panel, options) {
       transparent: true,
       opacity: options.opacity ?? 0.14,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
+  fill.renderOrder = 52;
   group.add(fill);
 
   const outlinePoints = localPoints.map((point) => new THREE.Vector3(point.x, point.y, 0.008));
@@ -1901,9 +1950,11 @@ function addPolygonMarker(panel, options) {
       color: options.color,
       transparent: true,
       opacity: 0.96,
+      depthTest: false,
       depthWrite: false,
     }),
   );
+  outline.renderOrder = 53;
   group.add(outline);
 
   parent.add(group);
@@ -1929,12 +1980,14 @@ function addArrow(panel, from, to, color) {
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.9,
+      opacity: 1,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
   shaft.position.x = -0.04;
+  shaft.renderOrder = 54;
   group.add(shaft);
 
   const shape = new THREE.Shape();
@@ -1947,18 +2000,47 @@ function addArrow(panel, from, to, color) {
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       side: THREE.DoubleSide,
+      depthTest: false,
       depthWrite: false,
     }),
   );
   head.position.x = length * 0.5 - 0.05;
+  head.renderOrder = 55;
   group.add(head);
 
   panel.overlayRoot.add(group);
   fadeInGroup(group, 0.75);
   panel.markers.push(group);
   return group;
+}
+
+function updateMarkerEmphasis(delta) {
+  if (activeSceneIndex < 0 || activeSceneIndex >= EXPERIENCE.scenes.length) return;
+  const panel = getPanel(activeSceneIndex);
+  if (!panel?.markers?.length) return;
+
+  for (const marker of panel.markers) {
+    if (!marker.parent) continue;
+    const target = mode === "playing" && isLookingAt(marker) ? 1 : 0;
+    const current = marker.userData.emphasis || 0;
+    const next = current + (target - current) * Math.min(1, delta * 8);
+    marker.userData.emphasis = next;
+    const scale = 1 + next * 0.045;
+    marker.scale.set(scale, scale, 1);
+    if (marker.userData.fadeInActive) continue;
+    marker.traverse((child) => {
+      if (!child.material) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        if (material.userData.baseOpacity === undefined) {
+          material.userData.baseOpacity = material.opacity;
+        }
+        material.opacity = Math.min(1, material.userData.baseOpacity * (1 + next * 0.35));
+      }
+    });
+  }
 }
 
 function pulsePanelFrame(panel, color) {
@@ -2041,8 +2123,12 @@ function updateTweens(delta) {
 }
 
 function fadeInGroup(group, duration) {
+  group.userData.fadeInActive = true;
   setGroupOpacity(group, 0);
-  tween(duration, (t) => setGroupOpacity(group, t));
+  tween(duration, (t) => setGroupOpacity(group, t), () => {
+    group.userData.fadeInActive = false;
+    setGroupOpacity(group, 1);
+  });
 }
 
 function setGroupOpacity(group, opacity) {

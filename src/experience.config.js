@@ -90,7 +90,7 @@ export const EXPERIENCE = {
         cue("r2_04", 3.1, 0.08),
         cue("r2_05", 4.1, 0.08),
         cue("r2_06", 4.8, 0.08),
-        cue("r2_07", 5.1, 0.08),
+        cue("r2_07", 5.1, 0.08, { actionAtStart: "shadowTower" }),
         cue("r2_08", 8.5, 0.08),
         cue("r2_09", 3.6, 0.08),
         cue("r2_10", 10.9, 0.08),
@@ -100,7 +100,6 @@ export const EXPERIENCE = {
       events: [
         { at: 38.9, action: "shadowSun" },
         { at: 43.1, action: "shadowPerson" },
-        { at: 48.0, action: "shadowTower" },
         { at: 53.2, action: "shadowMissing" },
         { at: 63.0, action: "shadowTowerSimulation" },
       ],
@@ -158,19 +157,15 @@ export const EXPERIENCE = {
   ],
   closing: {
     duration: 45.0,
-    events: [
-      { at: 0.2, action: "showR5IntroBoard" },
-      { at: 10.2, action: "hideR5IntroBoard" },
-      { at: 29.4, action: "showMenBoard" },
-    ],
+    events: [],
     cues: [
-      cue("r5_01", 10.1),
-      cue("r5_02", 2),
+      cue("r5_01", 10.1, 0.12, { actionAtStart: "showR5IntroBoard" }),
+      cue("r5_02", 2, 0.12, { actionAtStart: "hideR5IntroBoard" }),
       cue("r5_03", 1.3),
       cue("r5_04", 1.4),
       cue("r5_05", 9.2),
       cue("r5_06", 4.7),
-      cue("r5_07", 13.8),
+      cue("r5_07", 13.8, 0.12, { actionAtStart: "showMenBoard" }),
     ],
   },
 };
