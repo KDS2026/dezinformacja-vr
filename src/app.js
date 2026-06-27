@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=leftfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=menboard-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -88,6 +88,7 @@ let pitchStart = 0;
 let immersiveVrSupported = null;
 let fadeSphere;
 let interactionArmed = false;
+let menBoard = null;
 
 const panels = new Map();
 const firedEvents = new Set();
@@ -612,6 +613,7 @@ function resetExperience({ armed = true } = {}) {
   firedEvents.clear();
   audioDirector.stopScene();
   fadeSphere.material.opacity = 0;
+  clearMenBoard();
 
   for (const panel of panels.values()) {
     setPanelVisual(panel, 0.16, 0);
@@ -650,6 +652,7 @@ function render() {
     activeSceneIndex,
     sceneTimer: Number(sceneTimer.toFixed(2)),
     awaitTimer: Number(awaitTimer.toFixed(2)),
+    closingTimer: Number(closingTimer.toFixed(2)),
     currentGazeType,
     reflectionRevealed,
   };
@@ -694,6 +697,15 @@ function updateMode(delta) {
 
   if (mode === "closing") {
     closingTimer += delta * timeScale;
+
+    for (const eventConfig of EXPERIENCE.closing.events || []) {
+      const key = `closing:${eventConfig.action}`;
+      if (closingTimer >= eventConfig.at && !firedEvents.has(key)) {
+        firedEvents.add(key);
+        handleClosingEvent(eventConfig.action);
+      }
+    }
+
     if (closingTimer >= EXPERIENCE.closing.duration) {
       resetExperience({ armed: true });
     }
@@ -851,9 +863,11 @@ function awaitNextScene(nextIndex) {
 function startClosing() {
   mode = "closing";
   closingTimer = 0;
+  firedEvents.clear();
   currentGazeTarget = null;
   currentGazeType = null;
   gazeTimer = 0;
+  clearMenBoard();
   audioDirector.stopScene();
   audioDirector.playScene(EXPERIENCE.closing.cues);
 
@@ -871,6 +885,16 @@ function startClosing() {
       fadeSphere.material.opacity = 0.78 * (1 - t);
     });
   });
+}
+
+function handleClosingEvent(action) {
+  switch (action) {
+    case "showMenBoard":
+      showMenBoard();
+      break;
+    default:
+      break;
+  }
 }
 
 function handleSceneEvent(action) {
@@ -936,6 +960,66 @@ function handleSceneEvent(action) {
     default:
       break;
   }
+}
+
+function showMenBoard() {
+  if (menBoard) return;
+
+  const group = new THREE.Group();
+  group.name = "men-board";
+  group.position.set(0, -0.02, -2.18);
+  group.scale.setScalar(0.94);
+
+  const boardWidth = 2.65;
+  const boardHeight = boardWidth * 0.75;
+  const texture = textureLoader.load(EXPERIENCE.assets.images.menBoard);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth + 0.08, boardHeight + 0.08),
+    new THREE.MeshBasicMaterial({
+      color: 0x050505,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  frame.position.z = -0.012;
+  frame.renderOrder = 1002;
+  group.add(frame);
+
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth, boardHeight),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  board.renderOrder = 1003;
+  group.add(board);
+
+  setGroupOpacity(group, 0);
+  camera.add(group);
+  menBoard = group;
+
+  tween(1.2, (t) => {
+    group.scale.setScalar(0.94 + easeOutCubic(t) * 0.06);
+    setGroupOpacity(group, t);
+  });
+}
+
+function clearMenBoard() {
+  if (!menBoard) return;
+  menBoard.removeFromParent();
+  menBoard = null;
 }
 
 function setConcertCrop(panel, progress) {

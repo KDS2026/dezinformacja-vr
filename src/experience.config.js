@@ -22,6 +22,7 @@ export const EXPERIENCE = {
       shadow: "./assets/img/cien.png",
       reflection: "./assets/img/odbicie.png",
       source: "./assets/img/idealna-falszywka.png",
+      menBoard: "./assets/img/plansza-men.png",
     },
   },
   audio: {
@@ -143,6 +144,9 @@ export const EXPERIENCE = {
   ],
   closing: {
     duration: 47.2,
+    events: [
+      { at: 31.4, action: "showMenBoard" },
+    ],
     cues: [
       cue("r5_01", 10.1),
       cue("r5_02", 2),
