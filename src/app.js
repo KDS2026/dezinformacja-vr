@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=introfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=reviewfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -93,6 +93,7 @@ let menBoard = null;
 let openingBoard = null;
 let openingVideo = null;
 let startTargetReleased = false;
+let shadowSimulationSeen = false;
 
 const panels = new Map();
 const firedEvents = new Set();
@@ -403,6 +404,7 @@ function createPanel(sceneConfig) {
       transparent: true,
       opacity: 0.82,
       side: THREE.DoubleSide,
+      depthWrite: false,
     }),
   );
   frame.position.z = -0.018;
@@ -414,6 +416,7 @@ function createPanel(sceneConfig) {
     transparent: true,
     opacity: 0.16,
     side: THREE.DoubleSide,
+    depthWrite: false,
   });
   const photo = new THREE.Mesh(new THREE.PlaneGeometry(width, height), photoMaterial);
   photo.name = `${sceneConfig.id}-photo`;
@@ -426,6 +429,7 @@ function createPanel(sceneConfig) {
       transparent: true,
       opacity: 0,
       side: THREE.DoubleSide,
+      depthWrite: false,
     }),
   );
   target.name = `${sceneConfig.id}-gaze-target`;
@@ -479,6 +483,7 @@ function createIntroLayer(sceneConfig) {
       transparent: true,
       opacity: 0.92,
       side: THREE.DoubleSide,
+      depthWrite: false,
     }),
   );
   frame.position.z = -0.018;
@@ -491,6 +496,7 @@ function createIntroLayer(sceneConfig) {
       transparent: true,
       opacity: 1,
       side: THREE.DoubleSide,
+      depthWrite: false,
     }),
   );
   introRoot.add(mesh);
@@ -623,6 +629,7 @@ function resetExperience({ armed = true } = {}) {
   awaitTimer = 0;
   closingTimer = 0;
   startTargetReleased = false;
+  shadowSimulationSeen = false;
   mode = interactionArmed ? "opening" : "standby";
   gazeTimer = 0;
   reflectionSearchActive = false;
@@ -636,7 +643,7 @@ function resetExperience({ armed = true } = {}) {
   clearMenBoard();
 
   for (const panel of panels.values()) {
-    setPanelVisual(panel, 0.16, 0);
+    setPanelVisual(panel, 0, 0);
     panel.photo.material.color.copy(DIM_COLOR);
     panel.contentRoot.scale.set(1, 1, 1);
     panel.texture.repeat.set(1, 1);
@@ -671,6 +678,7 @@ function render() {
   updateMode(timelineDelta);
   updateGaze(animationDelta);
   updateReticle();
+  updateFloatingBoards();
   window.__vrState = {
     mode,
     activeSceneIndex,
@@ -680,13 +688,22 @@ function render() {
     closingTimer: Number(closingTimer.toFixed(2)),
     currentGazeType,
     openingBoardVisible: Boolean(openingBoard),
+    menBoardVisible: Boolean(menBoard),
     reflectionRevealed,
+    reflectionZoomVisible: Boolean(getPanel(2)?.zoom),
+    shadowSimulationVisible: Boolean(getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation")),
+    shadowSimulationSeen,
+    summaryGridVisible: Boolean(getPanel(3)?.triptych),
   };
   canvas.dataset.mode = mode;
   canvas.dataset.scene = String(activeSceneIndex);
   canvas.dataset.openingBoard = openingBoard ? "1" : "0";
+  canvas.dataset.menBoard = menBoard ? "1" : "0";
   canvas.dataset.reflectionRevealed = reflectionRevealed ? "1" : "0";
   canvas.dataset.reflectionZoom = getPanel(2)?.zoom ? "1" : "0";
+  canvas.dataset.shadowSimulation = getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation") ? "1" : "0";
+  canvas.dataset.shadowSimulationSeen = shadowSimulationSeen ? "1" : "0";
+  canvas.dataset.summaryGrid = getPanel(3)?.triptych ? "1" : "0";
   canvas.dataset.openingTimer = openingTimer.toFixed(1);
   canvas.dataset.sceneTimer = sceneTimer.toFixed(1);
   canvas.dataset.closingTimer = closingTimer.toFixed(1);
@@ -856,6 +873,7 @@ function startScene(index) {
   sceneTimer = 0;
   awaitTimer = 0;
   mode = "playing";
+  if (index === 1) shadowSimulationSeen = false;
   reflectionSearchActive = false;
   reflectionRevealed = false;
   firedEvents.clear();
@@ -882,11 +900,11 @@ function startScene(index) {
     }
     const targetOpacity = i === index
       ? (panel.config.introImageKey ? 0.1 : 1)
-      : 0.14;
+      : 0;
     const targetColor = i === index ? ACTIVE_COLOR : DIM_COLOR;
     tween(0.75, (t) => {
       panel.photo.material.opacity = THREE.MathUtils.lerp(panel.photo.material.opacity, targetOpacity, t);
-      panel.frame.material.opacity = THREE.MathUtils.lerp(panel.frame.material.opacity, i === index ? 0.92 : 0.48, t);
+      panel.frame.material.opacity = THREE.MathUtils.lerp(panel.frame.material.opacity, i === index ? 0.92 : 0, t);
       panel.photo.material.color.copy(tmpColor.copy(panel.photo.material.color).lerp(targetColor, t));
     });
   }
@@ -960,9 +978,10 @@ function awaitNextScene(nextIndex) {
   const nextPanel = getPanel(nextIndex);
   clearPanelOverlays(currentPanel);
   tween(1.1, (t) => {
-    currentPanel.photo.material.opacity = THREE.MathUtils.lerp(currentPanel.photo.material.opacity, 0.34, t);
+    currentPanel.photo.material.opacity = THREE.MathUtils.lerp(currentPanel.photo.material.opacity, 0.06, t);
+    currentPanel.frame.material.opacity = THREE.MathUtils.lerp(currentPanel.frame.material.opacity, 0.08, t);
     currentPanel.photo.material.color.copy(tmpColor.copy(currentPanel.photo.material.color).lerp(DIM_COLOR, t));
-    nextPanel.photo.material.opacity = THREE.MathUtils.lerp(nextPanel.photo.material.opacity, 0.38, t);
+    nextPanel.photo.material.opacity = THREE.MathUtils.lerp(nextPanel.photo.material.opacity, 0.58, t);
     nextPanel.frame.material.opacity = THREE.MathUtils.lerp(nextPanel.frame.material.opacity, 0.72, t);
     nextPanel.photo.material.color.copy(tmpColor.copy(nextPanel.photo.material.color).lerp(NEXT_HINT_COLOR, t));
   });
@@ -1010,7 +1029,7 @@ function showOpeningBoard() {
 
   const group = new THREE.Group();
   group.name = "opening-board";
-  group.position.set(0, 0.01, -2.28);
+  group.userData.followCamera = { distance: 2.28, yOffset: 0.01 };
 
   const video = document.createElement("video");
   video.src = new URL(EXPERIENCE.assets.videos.opening, window.location.href).href;
@@ -1060,7 +1079,8 @@ function showOpeningBoard() {
   group.add(board);
 
   setGroupOpacity(group, 0);
-  camera.add(group);
+  placeInFrontOfCamera(group, group.userData.followCamera);
+  scene.add(group);
   openingBoard = group;
   video.play().catch(() => undefined);
 
@@ -1160,6 +1180,9 @@ function handleSceneEvent(action) {
       addRectMarker(panel, { x: 0.36, y: 0.69, w: 0.34, h: 0.2, color: RED, opacity: 0.08 });
       addArrow(panel, { x: 0.51, y: 0.35 }, { x: 0.34, y: 0.73 }, RED);
       break;
+    case "shadowTowerSimulation":
+      showTowerShadowSimulation(panel);
+      break;
     case "enableReflectionSearch":
       enableReflectionSearch(panel);
       break;
@@ -1185,7 +1208,7 @@ function showMenBoard() {
 
   const group = new THREE.Group();
   group.name = "men-board";
-  group.position.set(0, -0.02, -2.18);
+  group.userData.followCamera = { distance: 2.18, yOffset: -0.02 };
   group.scale.setScalar(0.94);
 
   const boardWidth = 2.65;
@@ -1225,7 +1248,8 @@ function showMenBoard() {
   group.add(board);
 
   setGroupOpacity(group, 0);
-  camera.add(group);
+  placeInFrontOfCamera(group, group.userData.followCamera);
+  scene.add(group);
   menBoard = group;
 
   tween(1.2, (t) => {
@@ -1238,6 +1262,28 @@ function clearMenBoard() {
   if (!menBoard) return;
   menBoard.removeFromParent();
   menBoard = null;
+}
+
+function updateFloatingBoards() {
+  if (openingBoard?.userData.followCamera) {
+    placeInFrontOfCamera(openingBoard, openingBoard.userData.followCamera);
+  }
+  if (menBoard?.userData.followCamera) {
+    placeInFrontOfCamera(menBoard, menBoard.userData.followCamera);
+  }
+}
+
+function placeInFrontOfCamera(group, options = {}) {
+  const activeCamera = renderer.xr.isPresenting ? renderer.xr.getCamera(camera) : camera;
+  const distance = options.distance ?? 2.25;
+  const yOffset = options.yOffset ?? 0;
+  activeCamera.getWorldPosition(cameraPosition);
+  activeCamera.getWorldDirection(cameraDirection);
+  group.position.copy(cameraPosition).addScaledVector(cameraDirection, distance);
+  group.quaternion.copy(activeCamera.quaternion);
+  if (yOffset) {
+    group.translateY(yOffset);
+  }
 }
 
 function setConcertCrop(panel, progress) {
@@ -1301,7 +1347,7 @@ function revealReflection() {
 
   const reflectionCrop = { x: 0.66, y: 0.18, w: 0.28, h: 0.58 };
   const cropAspect = (reflectionCrop.w * panel.config.aspect) / reflectionCrop.h;
-  const zoomWidth = 2.05;
+  const zoomWidth = 1.85;
   const zoom = createCropPlane(
     EXPERIENCE.assets.images.reflection,
     reflectionCrop,
@@ -1309,7 +1355,7 @@ function revealReflection() {
     zoomWidth / cropAspect,
   );
   zoom.name = "reflection-zoom";
-  zoom.position.set(panel.width * -0.22, 0.02, 0.14);
+  zoom.position.set(panel.width * 0.24, 0.02, 0.14);
   zoom.scale.setScalar(0.8);
   setGroupOpacity(zoom, 0);
   panel.overlayRoot.add(zoom);
@@ -1327,25 +1373,37 @@ function showTriptych(panel) {
   if (panel.triptych) return;
 
   const triptych = new THREE.Group();
-  triptych.name = "source-triptych";
+  triptych.name = "source-summary-grid";
   triptych.position.z = 0.11;
   setGroupOpacity(triptych, 0);
 
-  const itemWidth = panel.width * 0.31;
-  const itemHeight = itemWidth / panel.config.aspect;
-  const gap = panel.width * 0.035;
+  const summaryItems = EXPERIENCE.scenes.map((sceneConfig) => {
+    const imageKey = sceneConfig.summaryImageKey || sceneConfig.imageKey;
+    return {
+      src: EXPERIENCE.assets.images[imageKey],
+      aspect: imageKey === sceneConfig.introImageKey
+        ? (sceneConfig.introAspect || sceneConfig.aspect)
+        : sceneConfig.aspect,
+    };
+  });
+  const itemWidth = panel.width * 0.21;
+  const gap = panel.width * 0.025;
+  const totalWidth = summaryItems.length * itemWidth + (summaryItems.length - 1) * gap;
 
-  for (let i = 0; i < 3; i += 1) {
-    const texture = textureLoader.load(EXPERIENCE.assets.images.source);
+  for (let i = 0; i < summaryItems.length; i += 1) {
+    const item = summaryItems[i];
+    const itemHeight = itemWidth / item.aspect;
+    const texture = textureLoader.load(item.src);
     texture.colorSpace = THREE.SRGBColorSpace;
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
       opacity: 1,
       side: THREE.DoubleSide,
+      depthWrite: false,
     });
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(itemWidth, itemHeight), material);
-    mesh.position.x = (i - 1) * (itemWidth + gap);
+    mesh.position.x = -totalWidth * 0.5 + itemWidth * 0.5 + i * (itemWidth + gap);
     triptych.add(mesh);
 
     const frame = new THREE.Mesh(
@@ -1355,6 +1413,7 @@ function showTriptych(panel) {
         transparent: true,
         opacity: 0.9,
         side: THREE.DoubleSide,
+        depthWrite: false,
       }),
     );
     frame.position.set(mesh.position.x, 0, -0.018);
@@ -1366,6 +1425,71 @@ function showTriptych(panel) {
   tween(1.5, (t) => {
     panel.photo.material.opacity = THREE.MathUtils.lerp(panel.photo.material.opacity, 0.18, t);
     setGroupOpacity(triptych, easeOutCubic(t));
+  });
+}
+
+function showTowerShadowSimulation(panel) {
+  shadowSimulationSeen = true;
+  const points = [
+    { x: 0.48, y: 0.26 },
+    { x: 0.56, y: 0.27 },
+    { x: 0.43, y: 0.55 },
+    { x: 0.17, y: 0.94 },
+    { x: 0.04, y: 0.94 },
+    { x: 0.34, y: 0.53 },
+  ];
+  const localPoints = points.map((point) => normToLocal(panel, point.x, point.y));
+  const shape = new THREE.Shape();
+  shape.moveTo(localPoints[0].x, localPoints[0].y);
+  for (let i = 1; i < localPoints.length; i += 1) {
+    shape.lineTo(localPoints[i].x, localPoints[i].y);
+  }
+  shape.closePath();
+
+  const shadow = new THREE.Group();
+  shadow.name = "tower-shadow-simulation";
+  shadow.position.z = 0.13;
+
+  const fill = new THREE.Mesh(
+    new THREE.ShapeGeometry(shape),
+    new THREE.MeshBasicMaterial({
+      color: 0x030303,
+      transparent: true,
+      opacity: 0.58,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  fill.renderOrder = 30;
+
+  const outlinePoints = localPoints.map((point) => new THREE.Vector3(point.x, point.y, 0.008));
+  outlinePoints.push(outlinePoints[0].clone());
+  const outline = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(outlinePoints),
+    new THREE.LineBasicMaterial({
+      color: 0x1a1409,
+      transparent: true,
+      opacity: 0.38,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  outline.renderOrder = 31;
+
+  shadow.add(fill, outline);
+  panel.overlayRoot.add(shadow);
+  panel.markers.push(shadow);
+
+  tween(3.2, (t) => {
+    const cycle = (t * 2) % 1;
+    const isLit = cycle < 0.62;
+    const fade = 1 - t * 0.12;
+    fill.material.opacity = (isLit ? 0.58 : 0.04) * fade;
+    outline.material.opacity = (isLit ? 0.38 : 0.02) * fade;
+  }, () => {
+    shadow.removeFromParent();
+    panel.markers = panel.markers.filter((marker) => marker !== shadow);
   });
 }
 
@@ -1383,8 +1507,11 @@ function createCropPlane(imageSrc, crop, width, height) {
       transparent: true,
       opacity: 0.92,
       side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
     }),
   );
+  frame.renderOrder = 26;
   frame.position.z = -0.014;
   group.add(frame);
 
@@ -1395,8 +1522,11 @@ function createCropPlane(imageSrc, crop, width, height) {
       transparent: true,
       opacity: 1,
       side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
     }),
   );
+  mesh.renderOrder = 27;
   group.add(mesh);
   group.cropInfo = { crop, width, height };
   return group;
@@ -1597,7 +1727,7 @@ function clearPanelOverlays(panel) {
 
 function setPanelVisual(panel, opacity, colorMix) {
   panel.photo.material.opacity = opacity;
-  panel.frame.material.opacity = 0.48;
+  panel.frame.material.opacity = opacity > 0 ? 0.48 : 0;
   panel.photo.material.color.copy(tmpColor.copy(DIM_COLOR).lerp(ACTIVE_COLOR, colorMix));
 }
 
