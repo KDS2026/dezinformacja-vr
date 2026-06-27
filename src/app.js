@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=ceilingfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=stopfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -84,12 +84,14 @@ let desktopPitch = 0;
 let pointerLookActive = false;
 let pointerStartX = 0;
 let pointerStartY = 0;
+let pointerMoved = false;
 let yawStart = 0;
 let pitchStart = 0;
 let immersiveVrSupported = null;
 let fadeSphere;
 let interactionArmed = false;
 let menBoard = null;
+let r5IntroBoard = null;
 let openingBoard = null;
 let openingVideo = null;
 let startTargetReleased = false;
@@ -378,8 +380,7 @@ function createPanels() {
 function createEmergencyResetTarget() {
   const root = new THREE.Group();
   root.name = "emergency-reset-target";
-  root.position.set(0, 1.58, 4.35);
-  root.rotation.y = Math.PI;
+  root.position.set(0, 2.22, -2.55);
   root.visible = false;
 
   const halo = new THREE.Mesh(
@@ -393,7 +394,7 @@ function createEmergencyResetTarget() {
       depthWrite: false,
     }),
   );
-  halo.renderOrder = 38;
+  halo.renderOrder = 1101;
 
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(0.15, 0.19, 64),
@@ -406,7 +407,7 @@ function createEmergencyResetTarget() {
       depthWrite: false,
     }),
   );
-  ring.renderOrder = 39;
+  ring.renderOrder = 1102;
 
   const dot = new THREE.Mesh(
     new THREE.CircleGeometry(0.09, 64),
@@ -419,10 +420,26 @@ function createEmergencyResetTarget() {
       depthWrite: false,
     }),
   );
-  dot.renderOrder = 40;
+  dot.renderOrder = 1103;
+
+  const labelTexture = createStopLabelTexture();
+  const label = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.72, 0.28),
+    new THREE.MeshBasicMaterial({
+      map: labelTexture,
+      transparent: true,
+      opacity: 0.96,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  label.name = "emergency-reset-label";
+  label.position.set(0, 0.31, 0.02);
+  label.renderOrder = 1104;
 
   const hit = new THREE.Mesh(
-    new THREE.CircleGeometry(0.48, 64),
+    new THREE.CircleGeometry(0.58, 64),
     new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
@@ -434,9 +451,29 @@ function createEmergencyResetTarget() {
   hit.name = "emergency-reset-hit";
   hit.position.z = 0.03;
 
-  root.add(halo, ring, dot, hit);
+  root.add(label, halo, ring, dot, hit);
   scene.add(root);
   emergencyReset = { root, halo, ring, dot, hit };
+}
+
+function createStopLabelTexture() {
+  const labelCanvas = document.createElement("canvas");
+  labelCanvas.width = 512;
+  labelCanvas.height = 192;
+  const context = labelCanvas.getContext("2d");
+  context.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
+  context.font = "800 116px Arial, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.lineWidth = 12;
+  context.strokeStyle = "rgba(0, 0, 0, 0.7)";
+  context.fillStyle = "rgba(255, 82, 66, 1)";
+  context.strokeText("STOP", 256, 104);
+  context.fillText("STOP", 256, 104);
+  const texture = new THREE.CanvasTexture(labelCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function createPanel(sceneConfig) {
@@ -656,6 +693,7 @@ function bindDesktopLook() {
     pointerLookActive = true;
     pointerStartX = event.clientX;
     pointerStartY = event.clientY;
+    pointerMoved = false;
     yawStart = desktopYaw;
     pitchStart = desktopPitch;
     canvas.setPointerCapture(event.pointerId);
@@ -663,6 +701,9 @@ function bindDesktopLook() {
 
   canvas.addEventListener("pointermove", (event) => {
     if (!pointerLookActive || renderer.xr.isPresenting) return;
+    if (Math.abs(event.clientX - pointerStartX) > 6 || Math.abs(event.clientY - pointerStartY) > 6) {
+      pointerMoved = true;
+    }
     desktopYaw = yawStart - (event.clientX - pointerStartX) * 0.004;
     desktopPitch = THREE.MathUtils.clamp(
       pitchStart - (event.clientY - pointerStartY) * 0.003,
@@ -677,6 +718,14 @@ function bindDesktopLook() {
   });
 
   canvas.addEventListener("click", () => {
+    if (pointerMoved) {
+      pointerMoved = false;
+      return;
+    }
+    if (isEmergencyResetActive()) {
+      stopExperienceFromEmergencyReset();
+      return;
+    }
     triggerCurrentTarget();
   });
 }
@@ -703,6 +752,7 @@ function resetExperience({ armed = true } = {}) {
   fadeSphere.material.opacity = 0;
   clearOpeningBoard();
   clearMenBoard();
+  clearR5IntroBoard();
   if (emergencyReset) {
     emergencyReset.root.visible = false;
     setEmergencyResetVisual(0, false);
@@ -756,6 +806,7 @@ function render() {
     currentGazeType,
     openingBoardVisible: Boolean(openingBoard),
     menBoardVisible: Boolean(menBoard),
+    r5IntroBoardVisible: Boolean(r5IntroBoard),
     reflectionRevealed,
     reflectionZoomVisible: Boolean(getPanel(2)?.zoom),
     shadowSimulationVisible: Boolean(getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation")),
@@ -769,6 +820,7 @@ function render() {
   canvas.dataset.scene = String(activeSceneIndex);
   canvas.dataset.openingBoard = openingBoard ? "1" : "0";
   canvas.dataset.menBoard = menBoard ? "1" : "0";
+  canvas.dataset.r5IntroBoard = r5IntroBoard ? "1" : "0";
   canvas.dataset.reflectionRevealed = reflectionRevealed ? "1" : "0";
   canvas.dataset.reflectionZoom = getPanel(2)?.zoom ? "1" : "0";
   canvas.dataset.shadowSimulation = getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation") ? "1" : "0";
@@ -896,17 +948,25 @@ function updateEmergencyReset(delta) {
   emergencyResetGazeTimer += delta;
   setEmergencyResetVisual(getEmergencyResetProgress(), true);
   if (getEmergencyResetProgress() >= 1) {
-    emergencyResetActivations += 1;
-    emergencyResetGazeTimer = 0;
-    resetExperience({ armed: true });
+    stopExperienceFromEmergencyReset();
   }
 }
 
 function isEmergencyResetAvailable() {
   return interactionArmed
     && mode !== "loading"
-    && mode !== "standby"
-    && mode !== "opening";
+    && mode !== "standby";
+}
+
+function stopExperienceFromEmergencyReset() {
+  emergencyResetActivations += 1;
+  emergencyResetGazeTimer = 0;
+  startScreen.classList.remove("is-hidden");
+  resetExperience({ armed: false });
+  const session = renderer.xr.getSession?.();
+  if (session) {
+    session.end().catch(() => undefined);
+  }
 }
 
 function isEmergencyResetActive() {
@@ -944,7 +1004,7 @@ function updateReticle() {
 
   const ring = reticle.getObjectByName("reticle-ring");
   const dot = reticle.getObjectByName("reticle-dot");
-  if (openingIsCoveringTarget) {
+  if (openingIsCoveringTarget && !resetIsActive) {
     ring.material.opacity = 0;
     dot.material.opacity = 0;
     return;
@@ -1074,6 +1134,7 @@ function handleOpeningEvent(action) {
 function releaseStartTarget() {
   if (startTargetReleased) return;
   startTargetReleased = true;
+  audioDirector.stopScene();
   hideOpeningBoard(() => {
     activateStartTarget();
   });
@@ -1126,6 +1187,7 @@ function startClosing() {
   currentGazeType = null;
   gazeTimer = 0;
   clearMenBoard();
+  clearR5IntroBoard();
   audioDirector.stopScene();
   audioDirector.playScene(EXPERIENCE.closing.cues);
 
@@ -1147,7 +1209,14 @@ function startClosing() {
 
 function handleClosingEvent(action) {
   switch (action) {
+    case "showR5IntroBoard":
+      showR5IntroBoard();
+      break;
+    case "hideR5IntroBoard":
+      clearR5IntroBoard();
+      break;
     case "showMenBoard":
+      clearR5IntroBoard();
       showMenBoard();
       break;
     default:
@@ -1160,7 +1229,6 @@ function showOpeningBoard() {
 
   const group = new THREE.Group();
   group.name = "opening-board";
-  group.userData.followCamera = { distance: 2.28, yOffset: 0.01 };
 
   const video = document.createElement("video");
   video.src = new URL(EXPERIENCE.assets.videos.opening, window.location.href).href;
@@ -1210,7 +1278,7 @@ function showOpeningBoard() {
   group.add(board);
 
   setGroupOpacity(group, 0);
-  placeInFrontOfCamera(group, group.userData.followCamera);
+  placeInFrontOfCamera(group, { distance: 2.28, yOffset: 0.01 });
   scene.add(group);
   openingBoard = group;
   video.play().catch(() => undefined);
@@ -1339,7 +1407,6 @@ function showMenBoard() {
 
   const group = new THREE.Group();
   group.name = "men-board";
-  group.userData.followCamera = { distance: 2.18, yOffset: -0.02 };
   group.scale.setScalar(0.94);
 
   const boardWidth = 2.65;
@@ -1379,7 +1446,7 @@ function showMenBoard() {
   group.add(board);
 
   setGroupOpacity(group, 0);
-  placeInFrontOfCamera(group, group.userData.followCamera);
+  placeInFrontOfCamera(group, { distance: 2.18, yOffset: -0.02 });
   scene.add(group);
   menBoard = group;
 
@@ -1393,6 +1460,66 @@ function clearMenBoard() {
   if (!menBoard) return;
   menBoard.removeFromParent();
   menBoard = null;
+}
+
+function showR5IntroBoard() {
+  if (r5IntroBoard) return;
+
+  const group = new THREE.Group();
+  group.name = "r5-intro-board";
+  group.scale.setScalar(0.92);
+
+  const boardWidth = 2.72;
+  const boardHeight = boardWidth * 0.75;
+  const texture = textureLoader.load(EXPERIENCE.assets.images.r5IntroBoard);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth + 0.08, boardHeight + 0.08),
+    new THREE.MeshBasicMaterial({
+      color: 0x050505,
+      transparent: true,
+      opacity: 0.92,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  frame.position.z = -0.012;
+  frame.renderOrder = 1002;
+  group.add(frame);
+
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth, boardHeight),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  board.renderOrder = 1003;
+  group.add(board);
+
+  setGroupOpacity(group, 0);
+  placeInFrontOfCamera(group, { distance: 2.2, yOffset: -0.02 });
+  scene.add(group);
+  r5IntroBoard = group;
+
+  tween(0.8, (t) => {
+    group.scale.setScalar(0.92 + easeOutCubic(t) * 0.08);
+    setGroupOpacity(group, t);
+  });
+}
+
+function clearR5IntroBoard() {
+  if (!r5IntroBoard) return;
+  r5IntroBoard.removeFromParent();
+  r5IntroBoard = null;
 }
 
 function updateFloatingBoards() {
