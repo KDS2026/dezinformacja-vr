@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=menboard-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=introfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -70,6 +70,7 @@ const tweens = [];
 
 let mode = "loading";
 let activeSceneIndex = -1;
+let openingTimer = 0;
 let sceneTimer = 0;
 let awaitTimer = 0;
 let closingTimer = 0;
@@ -89,6 +90,9 @@ let immersiveVrSupported = null;
 let fadeSphere;
 let interactionArmed = false;
 let menBoard = null;
+let openingBoard = null;
+let openingVideo = null;
+let startTargetReleased = false;
 
 const panels = new Map();
 const firedEvents = new Set();
@@ -99,6 +103,8 @@ class AudioDirector {
     this.context = null;
     this.sceneToken = 0;
     this.backgroundAudio = null;
+    this.activeAudio = null;
+    this.activeFinish = null;
     this.unlocked = false;
   }
 
@@ -140,6 +146,7 @@ class AudioDirector {
 
   stopScene() {
     this.sceneToken += 1;
+    this.activeFinish?.(false);
   }
 
   playScene(cues) {
@@ -174,6 +181,7 @@ class AudioDirector {
       : this.config.extensionFallbacks.map((extension) => `${cue.id}.${extension}`);
 
     for (const filename of candidates) {
+      if (token !== this.sceneToken) return;
       const ok = await this.tryPlayAudio(`${this.config.basePath}${filename}`, token);
       if (ok) return;
     }
@@ -185,17 +193,25 @@ class AudioDirector {
     return new Promise((resolve) => {
       const audio = new Audio(src);
       let settled = false;
+      let timer = null;
       audio.volume = this.config.narrationVolume;
 
       const finish = (ok) => {
         if (settled) return;
         settled = true;
+        if (timer) window.clearTimeout(timer);
+        if (this.activeAudio === audio) {
+          this.activeAudio = null;
+          this.activeFinish = null;
+        }
         audio.pause();
         audio.src = "";
         resolve(ok);
       };
 
-      const timer = window.setTimeout(() => finish(false), 1200);
+      this.activeAudio = audio;
+      this.activeFinish = finish;
+      timer = window.setTimeout(() => finish(false), 1200);
 
       audio.addEventListener("canplaythrough", () => {
         if (token !== this.sceneToken) {
@@ -599,20 +615,24 @@ function bindDesktopLook() {
 }
 
 function resetExperience({ armed = true } = {}) {
+  clock.getDelta();
   interactionArmed = armed;
   activeSceneIndex = -1;
+  openingTimer = 0;
   sceneTimer = 0;
   awaitTimer = 0;
   closingTimer = 0;
-  mode = interactionArmed ? "idle" : "standby";
+  startTargetReleased = false;
+  mode = interactionArmed ? "opening" : "standby";
   gazeTimer = 0;
   reflectionSearchActive = false;
   reflectionRevealed = false;
-  currentGazeTarget = interactionArmed ? getPanel(0).startHit : null;
-  currentGazeType = interactionArmed ? "start" : null;
+  currentGazeTarget = null;
+  currentGazeType = null;
   firedEvents.clear();
   audioDirector.stopScene();
   fadeSphere.material.opacity = 0;
+  clearOpeningBoard();
   clearMenBoard();
 
   for (const panel of panels.values()) {
@@ -630,8 +650,12 @@ function resetExperience({ armed = true } = {}) {
 
   const firstPanel = getPanel(0);
   if (firstPanel.startRing) {
-    firstPanel.startRing.visible = true;
-    setGroupOpacity(firstPanel.startRing, 1);
+    firstPanel.startRing.visible = !interactionArmed;
+    setGroupOpacity(firstPanel.startRing, interactionArmed ? 0 : 1);
+  }
+
+  if (interactionArmed) {
+    startOpeningIntro();
   }
 }
 
@@ -650,12 +674,22 @@ function render() {
   window.__vrState = {
     mode,
     activeSceneIndex,
+    openingTimer: Number(openingTimer.toFixed(2)),
     sceneTimer: Number(sceneTimer.toFixed(2)),
     awaitTimer: Number(awaitTimer.toFixed(2)),
     closingTimer: Number(closingTimer.toFixed(2)),
     currentGazeType,
+    openingBoardVisible: Boolean(openingBoard),
     reflectionRevealed,
   };
+  canvas.dataset.mode = mode;
+  canvas.dataset.scene = String(activeSceneIndex);
+  canvas.dataset.openingBoard = openingBoard ? "1" : "0";
+  canvas.dataset.reflectionRevealed = reflectionRevealed ? "1" : "0";
+  canvas.dataset.reflectionZoom = getPanel(2)?.zoom ? "1" : "0";
+  canvas.dataset.openingTimer = openingTimer.toFixed(1);
+  canvas.dataset.sceneTimer = sceneTimer.toFixed(1);
+  canvas.dataset.closingTimer = closingTimer.toFixed(1);
   renderer.render(scene, camera);
 }
 
@@ -666,6 +700,22 @@ function updateDesktopCamera() {
 }
 
 function updateMode(delta) {
+  if (mode === "opening") {
+    openingTimer += delta * timeScale;
+
+    for (const eventConfig of EXPERIENCE.opening.events || []) {
+      const key = `opening:${eventConfig.action}`;
+      if (openingTimer >= eventConfig.at && !firedEvents.has(key)) {
+        firedEvents.add(key);
+        handleOpeningEvent(eventConfig.action);
+      }
+    }
+
+    if (openingTimer >= EXPERIENCE.opening.duration) {
+      releaseStartTarget();
+    }
+  }
+
   if (mode === "playing") {
     sceneTimer += delta * timeScale;
     const sceneConfig = EXPERIENCE.scenes[activeSceneIndex];
@@ -739,6 +789,7 @@ function updateReticle() {
   if (!reticle) return;
 
   const targetIsActive = Boolean(currentGazeTarget && isLookingAt(currentGazeTarget));
+  const openingIsCoveringTarget = mode === "opening" && !currentGazeTarget;
   const dwell = currentGazeType === "reflection"
     ? EXPERIENCE.gaze.sceneThreeDwellSeconds
     : EXPERIENCE.gaze.dwellSeconds;
@@ -746,6 +797,11 @@ function updateReticle() {
 
   const ring = reticle.getObjectByName("reticle-ring");
   const dot = reticle.getObjectByName("reticle-dot");
+  if (openingIsCoveringTarget) {
+    ring.material.opacity = 0;
+    dot.material.opacity = 0;
+    return;
+  }
   ring.material.opacity = targetIsActive ? 0.4 + progress * 0.42 : 0.26;
   dot.material.opacity = targetIsActive ? 0.18 + progress * 0.52 : 0.12;
   dot.scale.setScalar(1 + progress * 2.4);
@@ -772,6 +828,7 @@ function triggerCurrentTarget() {
 
 function transitionToScene(index) {
   if (mode === "transition" || index < 0 || index >= EXPERIENCE.scenes.length) return;
+  clearOpeningBoard();
 
   if (timeScale > 20) {
     fadeSphere.material.opacity = 0;
@@ -807,6 +864,10 @@ function startScene(index) {
   gazeTimer = 0;
 
   const sceneConfig = EXPERIENCE.scenes[index];
+  if (!renderer.xr.isPresenting) {
+    desktopYaw = -THREE.MathUtils.degToRad(sceneConfig.angleDeg);
+    desktopPitch = 0;
+  }
   const activePanel = getPanel(index);
   if (activePanel.startRing) activePanel.startRing.visible = false;
 
@@ -838,6 +899,53 @@ function startScene(index) {
 
   audioDirector.stopScene();
   audioDirector.playScene(sceneConfig.cues);
+}
+
+function startOpeningIntro() {
+  openingTimer = 0;
+  startTargetReleased = false;
+  mode = "opening";
+  currentGazeTarget = null;
+  currentGazeType = null;
+  gazeTimer = 0;
+  showOpeningBoard();
+  audioDirector.playScene(EXPERIENCE.opening.cues);
+}
+
+function handleOpeningEvent(action) {
+  switch (action) {
+    case "releaseStartTarget":
+      releaseStartTarget();
+      break;
+    default:
+      break;
+  }
+}
+
+function releaseStartTarget() {
+  if (startTargetReleased) return;
+  startTargetReleased = true;
+  hideOpeningBoard(() => {
+    activateStartTarget();
+  });
+}
+
+function activateStartTarget() {
+  const firstPanel = getPanel(0);
+  if (!firstPanel?.startHit) return;
+
+  if (mode === "opening") {
+    mode = "idle";
+  }
+  currentGazeTarget = firstPanel.startHit;
+  currentGazeType = "start";
+  gazeTimer = 0;
+
+  if (firstPanel.startRing) {
+    firstPanel.startRing.visible = true;
+    setGroupOpacity(firstPanel.startRing, 0);
+    tween(0.7, (t) => setGroupOpacity(firstPanel.startRing, t));
+  }
 }
 
 function awaitNextScene(nextIndex) {
@@ -894,6 +1002,116 @@ function handleClosingEvent(action) {
       break;
     default:
       break;
+  }
+}
+
+function showOpeningBoard() {
+  clearOpeningBoard();
+
+  const group = new THREE.Group();
+  group.name = "opening-board";
+  group.position.set(0, 0.01, -2.28);
+
+  const video = document.createElement("video");
+  video.src = new URL(EXPERIENCE.assets.videos.opening, window.location.href).href;
+  video.preload = "auto";
+  video.playsInline = true;
+  video.muted = true;
+  video.loop = false;
+  video.crossOrigin = "anonymous";
+  openingVideo = video;
+
+  const texture = new THREE.VideoTexture(video);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  group.userData.videoTexture = texture;
+
+  const boardWidth = 2.92;
+  const boardHeight = boardWidth * (9 / 16);
+
+  const frame = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth + 0.08, boardHeight + 0.08),
+    new THREE.MeshBasicMaterial({
+      color: 0x050505,
+      transparent: true,
+      opacity: 0.94,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  frame.position.z = -0.012;
+  frame.renderOrder = 1004;
+  group.add(frame);
+
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(boardWidth, boardHeight),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  board.renderOrder = 1005;
+  group.add(board);
+
+  setGroupOpacity(group, 0);
+  camera.add(group);
+  openingBoard = group;
+  video.play().catch(() => undefined);
+
+  tween(0.8, (t) => {
+    group.scale.setScalar(0.98 + easeOutCubic(t) * 0.02);
+    setGroupOpacity(group, t);
+  });
+}
+
+function hideOpeningBoard(onComplete) {
+  if (!openingBoard) {
+    onComplete?.();
+    return;
+  }
+  const group = openingBoard;
+  tween(0.8, (t) => {
+    setGroupOpacity(group, 1 - t);
+  }, () => {
+    if (openingBoard === group) {
+      clearOpeningBoard();
+      onComplete?.();
+    }
+  });
+}
+
+function clearOpeningBoard() {
+  if (!openingBoard) {
+    if (openingVideo) {
+      openingVideo.pause();
+      openingVideo = null;
+    }
+    return;
+  }
+
+  const group = openingBoard;
+  group.removeFromParent();
+  group.traverse((child) => {
+    child.geometry?.dispose?.();
+    if (Array.isArray(child.material)) {
+      child.material.forEach((material) => material.dispose?.());
+    } else {
+      child.material?.dispose?.();
+    }
+  });
+  group.userData.videoTexture?.dispose?.();
+  openingBoard = null;
+  if (openingVideo) {
+    openingVideo.pause();
+    openingVideo.removeAttribute("src");
+    openingVideo.load();
+    openingVideo = null;
   }
 }
 
@@ -1091,7 +1309,7 @@ function revealReflection() {
     zoomWidth / cropAspect,
   );
   zoom.name = "reflection-zoom";
-  zoom.position.set(panel.width * 0.22, 0.02, 0.14);
+  zoom.position.set(panel.width * -0.22, 0.02, 0.14);
   zoom.scale.setScalar(0.8);
   setGroupOpacity(zoom, 0);
   panel.overlayRoot.add(zoom);

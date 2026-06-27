@@ -6,7 +6,7 @@ const cue = (id, duration, pauseAfter = 0.45, extra = {}) => ({
 });
 
 export const EXPERIENCE = {
-  productionDurationSeconds: 409,
+  productionDurationSeconds: 425,
   fastModeMultiplier: 8,
   gaze: {
     dwellSeconds: 1.15,
@@ -16,6 +16,9 @@ export const EXPERIENCE = {
   },
   assets: {
     background: "./assets/img/tlo.png",
+    videos: {
+      opening: "./assets/video/plansza_00.mp4",
+    },
     images: {
       concert: "./assets/img/koncert.png",
       riots: "./assets/img/zamieszki.png",
@@ -32,6 +35,15 @@ export const EXPERIENCE = {
     narrationVolume: 1,
     extensionFallbacks: ["mp3", "m4a", "wav"],
   },
+  opening: {
+    duration: 26.8,
+    events: [
+      { at: 25.2, action: "releaseStartTarget" },
+    ],
+    cues: [
+      cue("r0_00", 26.8, 0),
+    ],
+  },
   scenes: [
     {
       id: "scene-1-frame",
@@ -42,13 +54,12 @@ export const EXPERIENCE = {
       angleDeg: 0,
       aspect: 4.031,
       width: 6.6,
-      duration: 77.4,
-      nextPromptAt: 70.9,
+      duration: 71.8,
+      nextPromptAt: 65.3,
       cues: [
         cue("r1_01", 5.4, 0.55),
         cue("r1_02", 6.3, 0.55),
         cue("r1_03", 5.1, 0.55),
-        cue("r1_04", 5.1, 0.55),
         cue("r1_05", 6.7, 0.55),
         cue("r1_06", 6.8, 0.55),
         cue("r1_07", 8.4, 0.55),
@@ -58,7 +69,7 @@ export const EXPERIENCE = {
       ],
       events: [
         { at: 3, action: "concertCropStart" },
-        { at: 24.1, action: "concertReveal" },
+        { at: 18.5, action: "concertReveal" },
       ],
     },
     {
@@ -67,8 +78,8 @@ export const EXPERIENCE = {
       angleDeg: 34,
       aspect: 1.792,
       width: 4.95,
-      duration: 99.6,
-      nextPromptAt: 94.4,
+      duration: 94.7,
+      nextPromptAt: 89.5,
       cues: [
         cue("r2_01", 12.8),
         cue("r2_02", 8.8),
@@ -78,7 +89,7 @@ export const EXPERIENCE = {
         cue("r2_06", 4.8),
         cue("r2_07", 5.1),
         cue("r2_08", 8.5),
-        cue("r2_09", 8.5),
+        cue("r2_09", 3.6),
         cue("r2_10", 10.9),
         cue("r2_11", 9),
         cue("r2_12", 3.2),
@@ -110,8 +121,7 @@ export const EXPERIENCE = {
         cue("r3_09", 2.9),
       ],
       events: [
-        { at: 5.5, action: "enableReflectionSearch" },
-        { at: 35.1, action: "reflectionSafetyReveal" },
+        { at: 45.4, action: "reflectionSafetyReveal" },
       ],
     },
     {
