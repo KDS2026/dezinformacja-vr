@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=reviewfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=resetfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -94,6 +94,9 @@ let openingBoard = null;
 let openingVideo = null;
 let startTargetReleased = false;
 let shadowSimulationSeen = false;
+let emergencyReset = null;
+let emergencyResetGazeTimer = 0;
+let emergencyResetActivations = 0;
 
 const panels = new Map();
 const firedEvents = new Set();
@@ -246,6 +249,7 @@ function init() {
   createGalleryShell();
   createReticle();
   createPanels();
+  createEmergencyResetTarget();
   createFadeSphere();
   resetExperience({ armed: false });
   bindUi();
@@ -376,6 +380,70 @@ function createPanels() {
 
   firstPanel.startRing = startRing;
   firstPanel.startHit = hit;
+}
+
+function createEmergencyResetTarget() {
+  const root = new THREE.Group();
+  root.name = "emergency-reset-target";
+  root.position.set(0, 1.58, 4.35);
+  root.rotation.y = Math.PI;
+  root.visible = false;
+
+  const halo = new THREE.Mesh(
+    new THREE.CircleGeometry(0.28, 64),
+    new THREE.MeshBasicMaterial({
+      color: RED,
+      transparent: true,
+      opacity: 0.08,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  halo.renderOrder = 38;
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.15, 0.19, 64),
+    new THREE.MeshBasicMaterial({
+      color: RED,
+      transparent: true,
+      opacity: 0.68,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  ring.renderOrder = 39;
+
+  const dot = new THREE.Mesh(
+    new THREE.CircleGeometry(0.09, 64),
+    new THREE.MeshBasicMaterial({
+      color: RED,
+      transparent: true,
+      opacity: 0.9,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false,
+    }),
+  );
+  dot.renderOrder = 40;
+
+  const hit = new THREE.Mesh(
+    new THREE.CircleGeometry(0.48, 64),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  hit.name = "emergency-reset-hit";
+  hit.position.z = 0.03;
+
+  root.add(halo, ring, dot, hit);
+  scene.add(root);
+  emergencyReset = { root, halo, ring, dot, hit };
 }
 
 function createPanel(sceneConfig) {
@@ -630,6 +698,7 @@ function resetExperience({ armed = true } = {}) {
   closingTimer = 0;
   startTargetReleased = false;
   shadowSimulationSeen = false;
+  emergencyResetGazeTimer = 0;
   mode = interactionArmed ? "opening" : "standby";
   gazeTimer = 0;
   reflectionSearchActive = false;
@@ -641,6 +710,10 @@ function resetExperience({ armed = true } = {}) {
   fadeSphere.material.opacity = 0;
   clearOpeningBoard();
   clearMenBoard();
+  if (emergencyReset) {
+    emergencyReset.root.visible = false;
+    setEmergencyResetVisual(0, false);
+  }
 
   for (const panel of panels.values()) {
     setPanelVisual(panel, 0, 0);
@@ -676,6 +749,7 @@ function render() {
 
   updateTweens(animationDelta);
   updateMode(timelineDelta);
+  updateEmergencyReset(animationDelta);
   updateGaze(animationDelta);
   updateReticle();
   updateFloatingBoards();
@@ -694,6 +768,9 @@ function render() {
     shadowSimulationVisible: Boolean(getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation")),
     shadowSimulationSeen,
     summaryGridVisible: Boolean(getPanel(3)?.triptych),
+    emergencyResetVisible: Boolean(emergencyReset?.root.visible),
+    emergencyResetActive: isEmergencyResetActive(),
+    emergencyResetActivations,
   };
   canvas.dataset.mode = mode;
   canvas.dataset.scene = String(activeSceneIndex);
@@ -704,6 +781,10 @@ function render() {
   canvas.dataset.shadowSimulation = getPanel(1)?.overlayRoot.getObjectByName("tower-shadow-simulation") ? "1" : "0";
   canvas.dataset.shadowSimulationSeen = shadowSimulationSeen ? "1" : "0";
   canvas.dataset.summaryGrid = getPanel(3)?.triptych ? "1" : "0";
+  canvas.dataset.resetTarget = emergencyReset?.root.visible ? "1" : "0";
+  canvas.dataset.resetActive = isEmergencyResetActive() ? "1" : "0";
+  canvas.dataset.resetProgress = getEmergencyResetProgress().toFixed(2);
+  canvas.dataset.resetActivations = String(emergencyResetActivations);
   canvas.dataset.openingTimer = openingTimer.toFixed(1);
   canvas.dataset.sceneTimer = sceneTimer.toFixed(1);
   canvas.dataset.closingTimer = closingTimer.toFixed(1);
@@ -801,16 +882,72 @@ function updateGaze(delta) {
   }
 }
 
+function updateEmergencyReset(delta) {
+  if (!emergencyReset) return;
+
+  const available = isEmergencyResetAvailable();
+  emergencyReset.root.visible = available;
+  if (!available) {
+    emergencyResetGazeTimer = 0;
+    setEmergencyResetVisual(0, false);
+    return;
+  }
+
+  const active = isLookingAt(emergencyReset.hit);
+  if (!active) {
+    emergencyResetGazeTimer = Math.max(0, emergencyResetGazeTimer - delta * 1.5);
+    setEmergencyResetVisual(getEmergencyResetProgress(), false);
+    return;
+  }
+
+  emergencyResetGazeTimer += delta;
+  setEmergencyResetVisual(getEmergencyResetProgress(), true);
+  if (getEmergencyResetProgress() >= 1) {
+    emergencyResetActivations += 1;
+    emergencyResetGazeTimer = 0;
+    resetExperience({ armed: true });
+  }
+}
+
+function isEmergencyResetAvailable() {
+  return interactionArmed
+    && mode !== "loading"
+    && mode !== "standby"
+    && mode !== "opening";
+}
+
+function isEmergencyResetActive() {
+  return Boolean(emergencyReset?.root.visible && isLookingAt(emergencyReset.hit));
+}
+
+function getEmergencyResetProgress() {
+  const dwell = scaled(EXPERIENCE.gaze.resetDwellSeconds || 1.35);
+  return THREE.MathUtils.clamp(emergencyResetGazeTimer / dwell, 0, 1);
+}
+
+function setEmergencyResetVisual(progress, active) {
+  if (!emergencyReset) return;
+  const eased = easeOutCubic(progress);
+  emergencyReset.halo.material.opacity = active ? 0.12 + eased * 0.3 : 0.08 + eased * 0.12;
+  emergencyReset.ring.material.opacity = active ? 0.72 + eased * 0.26 : 0.58 + eased * 0.18;
+  emergencyReset.dot.material.opacity = active ? 0.92 : 0.78;
+  emergencyReset.ring.scale.setScalar(1 + eased * 0.36);
+  emergencyReset.dot.scale.setScalar(1 + eased * 0.22);
+}
+
 function updateReticle() {
   const reticle = camera.getObjectByName("reticle");
   if (!reticle) return;
 
-  const targetIsActive = Boolean(currentGazeTarget && isLookingAt(currentGazeTarget));
+  const resetIsActive = isEmergencyResetActive();
+  const targetIsActive = resetIsActive || Boolean(currentGazeTarget && isLookingAt(currentGazeTarget));
   const openingIsCoveringTarget = mode === "opening" && !currentGazeTarget;
   const dwell = currentGazeType === "reflection"
     ? EXPERIENCE.gaze.sceneThreeDwellSeconds
-    : EXPERIENCE.gaze.dwellSeconds;
-  const progress = THREE.MathUtils.clamp(gazeTimer / scaled(dwell), 0, 1);
+    : (resetIsActive ? (EXPERIENCE.gaze.resetDwellSeconds || 1.35) : EXPERIENCE.gaze.dwellSeconds);
+  const progress = resetIsActive
+    ? getEmergencyResetProgress()
+    : THREE.MathUtils.clamp(gazeTimer / scaled(dwell), 0, 1);
 
   const ring = reticle.getObjectByName("reticle-ring");
   const dot = reticle.getObjectByName("reticle-dot");
@@ -822,7 +959,8 @@ function updateReticle() {
   ring.material.opacity = targetIsActive ? 0.4 + progress * 0.42 : 0.26;
   dot.material.opacity = targetIsActive ? 0.18 + progress * 0.52 : 0.12;
   dot.scale.setScalar(1 + progress * 2.4);
-  ring.material.color.setHex(targetIsActive ? GOLD : WARM_WHITE);
+  ring.material.color.setHex(resetIsActive ? RED : (targetIsActive ? GOLD : WARM_WHITE));
+  dot.material.color.setHex(resetIsActive ? RED : GOLD);
 }
 
 function triggerCurrentTarget() {

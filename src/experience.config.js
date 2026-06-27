@@ -11,6 +11,7 @@ export const EXPERIENCE = {
   gaze: {
     dwellSeconds: 1.15,
     sceneThreeDwellSeconds: 0.7,
+    resetDwellSeconds: 1.35,
     transitionSafetySeconds: 7,
     startSafetySeconds: 0,
   },
