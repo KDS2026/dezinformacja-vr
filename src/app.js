@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three.module.js";
-import { EXPERIENCE } from "./experience.config.js?v=resetfix-20260627";
+import { EXPERIENCE } from "./experience.config.js?v=ceilingfix-20260627";
 
 const canvas = document.querySelector("#vr-canvas");
 const startScreen = document.querySelector("#start-screen");
@@ -295,13 +295,6 @@ function createGalleryShell() {
   floor.rotation.x = -Math.PI / 2;
   scene.add(floor);
 
-  const ceiling = new THREE.Mesh(
-    new THREE.PlaneGeometry(22, 22),
-    new THREE.MeshBasicMaterial({ color: 0x030303, transparent: true, opacity: 0.84 }),
-  );
-  ceiling.rotation.x = Math.PI / 2;
-  ceiling.position.y = 3.18;
-  scene.add(ceiling);
 }
 
 function createReticle() {
